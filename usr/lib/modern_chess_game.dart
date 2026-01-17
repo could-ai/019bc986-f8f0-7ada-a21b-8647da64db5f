@@ -584,7 +584,8 @@ class BoardPainter extends CustomPainter {
           fontWeight: FontWeight.bold,
           letterSpacing: 5,
         ),
-      ),n      textDirection: TextDirection.ltr,
+      ),
+      textDirection: TextDirection.ltr,
     );
     textPainter.layout();
     textPainter.paint(canvas, Offset((width - textPainter.width) / 2, cellSize * 4.5 + halfCell - textPainter.height / 2));
