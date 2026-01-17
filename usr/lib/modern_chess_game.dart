@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dart:math';
 
 // --- Data Models ---
 
@@ -43,6 +44,7 @@ class _ModernChessGameState extends State<ModernChessGame> {
   late List<ChessPiece> pieces;
   ChessPiece? selectedPiece;
   Side currentTurn = Side.red;
+  bool isVsComputer = false; // New: toggle for computer opponent
   
   // Game board dimensions
   final int rows = 10;
@@ -59,6 +61,23 @@ class _ModernChessGameState extends State<ModernChessGame> {
       pieces = _initPieces();
       currentTurn = Side.red;
       selectedPiece = null;
+      isVsComputer = false;
+    });
+  }
+
+  void _startVsComputer() {
+    setState(() {
+      isVsComputer = true;
+      _resetGame();
+      isVsComputer = true; // Keep it true after reset
+    });
+  }
+
+  void _startTwoPlayer() {
+    setState(() {
+      isVsComputer = false;
+      _resetGame();
+      isVsComputer = false;
     });
   }
 
@@ -112,6 +131,11 @@ class _ModernChessGameState extends State<ModernChessGame> {
   }
 
   void _handleTap(int row, int col) {
+    if (isVsComputer && currentTurn == Side.black) {
+      // If vs computer and it's computer's turn, ignore taps
+      return;
+    }
+
     // Find if a piece occupies this spot
     final tappedPiece = pieces.firstWhere(
       (p) => p.row == row && p.col == col,
@@ -136,29 +160,96 @@ class _ModernChessGameState extends State<ModernChessGame> {
         });
       } else {
         // Attempt to move or capture
-        // NOTE: For this prototype, we are NOT enforcing strict movement rules (like horse legs).
-        // We are only enforcing turn order and capturing.
+        // For simplicity, allow any move (no strict rules enforced)
+        bool canMove = true; // In full implementation, check rules here
         
-        // If capturing
-        if (isPiece && tappedPiece.side != currentTurn) {
-          setState(() {
-            pieces.remove(tappedPiece);
-            selectedPiece!.row = row;
-            selectedPiece!.col = col;
-            selectedPiece = null;
-            currentTurn = currentTurn == Side.red ? Side.black : Side.red;
-          });
-        } else {
-          // Moving to empty spot
-          setState(() {
-            selectedPiece!.row = row;
-            selectedPiece!.col = col;
-            selectedPiece = null;
-            currentTurn = currentTurn == Side.red ? Side.black : Side.red;
-          });
+        if (canMove) {
+          if (isPiece && tappedPiece.side != currentTurn) {
+            // Capture
+            setState(() {
+              pieces.remove(tappedPiece);
+              selectedPiece!.row = row;
+              selectedPiece!.col = col;
+              selectedPiece = null;
+              _switchTurn();
+            });
+          } else if (!isPiece) {
+            // Move to empty spot
+            setState(() {
+              selectedPiece!.row = row;
+              selectedPiece!.col = col;
+              selectedPiece = null;
+              _switchTurn();
+            });
+          }
         }
       }
     }
+  }
+
+  void _switchTurn() {
+    currentTurn = currentTurn == Side.red ? Side.black : Side.red;
+    if (isVsComputer && currentTurn == Side.black) {
+      // Computer's turn - delay then make move
+      Future.delayed(const Duration(seconds: 1), () {
+        _computerMove();
+      });
+    }
+  }
+
+  void _computerMove() {
+    if (!mounted) return;
+
+    // Simple AI: Randomly select a computer piece and move it to a random adjacent or nearby valid position
+    final computerPieces = pieces.where((p) => p.side == Side.black).toList();
+    if (computerPieces.isEmpty) return;
+
+    // Shuffle and pick a random piece
+    computerPieces.shuffle(Random());
+    final pieceToMove = computerPieces.first;
+
+    // Generate possible moves: for simplicity, nearby positions (up to 2 steps in any direction)
+    List<List<int>> possibleMoves = [];
+    for (int dr = -2; dr <= 2; dr++) {
+      for (int dc = -2; dc <= 2; dc++) {
+        if (dr == 0 && dc == 0) continue; // Not staying put
+        int newRow = pieceToMove.row + dr;
+        int newCol = pieceToMove.col + dc;
+        if (newRow >= 0 && newRow < rows && newCol >= 0 && newCol < cols) {
+          // Check if occupied by own piece
+          bool occupiedByOwn = pieces.any((p) => p.row == newRow && p.col == newCol && p.side == Side.black);
+          if (!occupiedByOwn) {
+            possibleMoves.add([newRow, newCol]);
+          }
+        }
+      }
+    }
+
+    if (possibleMoves.isEmpty) {
+      // If no moves, skip or try another piece (for simplicity, just end turn)
+      _switchTurn();
+      return;
+    }
+
+    // Pick random move
+    possibleMoves.shuffle(Random());
+    final move = possibleMoves.first;
+    final targetRow = move[0];
+    final targetCol = move[1];
+
+    // Check if capturing
+    final capturedPiece = pieces.firstWhere(
+      (p) => p.row == targetRow && p.col == targetCol,
+      orElse: () => ChessPiece(id: 'empty', side: Side.red, type: PieceType.soldier, row: -1, col: -1),
+    );
+    setState(() {
+      if (capturedPiece.row != -1) {
+        pieces.remove(capturedPiece);
+      }
+      pieceToMove.row = targetRow;
+      pieceToMove.col = targetCol;
+      _switchTurn();
+    });
   }
 
   @override
@@ -178,6 +269,34 @@ class _ModernChessGameState extends State<ModernChessGame> {
       ),
       body: Column(
         children: [
+          // Mode Selection
+          Container(
+            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+            color: Colors.black,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                ElevatedButton(
+                  onPressed: _startTwoPlayer,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: isVsComputer ? Colors.grey : Colors.cyan,
+                    foregroundColor: Colors.white,
+                  ),
+                  child: const Text('双人模式'),
+                ),
+                const SizedBox(width: 16),
+                ElevatedButton(
+                  onPressed: _startVsComputer,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: isVsComputer ? Colors.cyan : Colors.grey,
+                    foregroundColor: Colors.white,
+                  ),
+                  child: const Text('人机对战'),
+                ),
+              ],
+            ),
+          ),
+
           // Status Bar
           Container(
             padding: const EdgeInsets.symmetric(vertical: 16),
@@ -185,9 +304,9 @@ class _ModernChessGameState extends State<ModernChessGame> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
-                _buildPlayerIndicator(Side.black),
+                _buildPlayerIndicator(Side.black, isVsComputer && currentTurn == Side.black ? 'AI思考中...' : ''),
                 const Text("VS", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
-                _buildPlayerIndicator(Side.red),
+                _buildPlayerIndicator(Side.red, ''),
               ],
             ),
           ),
@@ -294,7 +413,7 @@ class _ModernChessGameState extends State<ModernChessGame> {
     );
   }
 
-  Widget _buildPlayerIndicator(Side side) {
+  Widget _buildPlayerIndicator(Side side, String extraText) {
     bool isActive = currentTurn == side;
     Color color = side == Side.red ? Colors.redAccent : Colors.blueAccent; // Modern Black is Blue/Cyan
     
@@ -306,18 +425,27 @@ class _ModernChessGameState extends State<ModernChessGame> {
         border: Border.all(color: isActive ? color : Colors.transparent),
         borderRadius: BorderRadius.circular(20),
       ),
-      child: Row(
+      child: Column(
         children: [
-          Icon(Icons.circle, color: color, size: 12),
-          const SizedBox(width: 8),
-          Text(
-            side == Side.red ? "RED FORCE" : "BLUE SQUAD",
-            style: TextStyle(
-              color: isActive ? Colors.white : Colors.grey,
-              fontWeight: FontWeight.bold,
-              letterSpacing: 1.2,
-            ),
+          Row(
+            children: [
+              Icon(Icons.circle, color: color, size: 12),
+              const SizedBox(width: 8),
+              Text(
+                side == Side.red ? "RED FORCE" : "BLUE SQUAD",
+                style: TextStyle(
+                  color: isActive ? Colors.white : Colors.grey,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 1.2,
+                ),
+              ),
+            ],
           ),
+          if (extraText.isNotEmpty)
+            Text(
+              extraText,
+              style: const TextStyle(color: Colors.cyan, fontSize: 12),
+            ),
         ],
       ),
     );
@@ -456,8 +584,7 @@ class BoardPainter extends CustomPainter {
           fontWeight: FontWeight.bold,
           letterSpacing: 5,
         ),
-      ),
-      textDirection: TextDirection.ltr,
+      ),n      textDirection: TextDirection.ltr,
     );
     textPainter.layout();
     textPainter.paint(canvas, Offset((width - textPainter.width) / 2, cellSize * 4.5 + halfCell - textPainter.height / 2));
